@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login</title>
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        .background {
+            background-image: url('{{ url_for("static", filename="Space.jpg") }}');
+            background-size: contain; /* Adjusted property */
+            background-repeat: no-repeat; /* Prevent the image from repeating */
+            background-position: center; /* Center the background image */
+            height: 100%;
+            transition: background-image 2s ease-in-out;
+        }
+
+        .container {
+            width: 50%;
+            margin: auto;
+            padding: 20px;
+            background-color: rgba(255, 255, 255, 0.8); /* White background with some transparency */
+            border-radius: 10px;
+            text-align: center;
+            margin-top: 50px;
+        }
+
+        h2 {
+            color: #333; /* Dark gray for heading */
+        }
+
+        .input-box {
+            margin-bottom: 20px;
+        }
+
+        .input-box label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .input-box input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+
+        input[type="submit"] {
+            width: 100%;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        input[type="submit"]:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="background">
+        <div class="container">
+            <h2>Login</h2>
+            <form method="post" action="/login">
+                <div class="input-box">
+                    <label for="username">Username:</label><br>
+                    <input type="text" id="username" name="username" required><br>
+                </div>
+                <div class="input-box">
+                    <label for="password">Password:</label><br>
+                    <input type="password" id="password" name="password" required><br>
+                </div>
+                <input type="submit" value="Login">
+            </form>
+            {% if error %}
+            <p>{{ error }}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        // JavaScript code can be added here if needed
+    </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+https://www.w3schools.com/html/tryit.asp?filename=tryhtml_default
+things to do
+set up page design (looks ect ect)
+set up file upload (photos ect ect)
+set up file upload (photos ect ect)
