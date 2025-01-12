@@ -2,41 +2,53 @@ from flask import Flask, request, render_template, redirect, url_for
 import sqlite3
 import os
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 
+# Initialize the Flask app
 app = Flask(__name__)
 
+# File upload configuration
+UPLOAD_FOLDER = 'uploads/'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Function to create the initial database
 def create_table():
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (username TEXT PRIMARY KEY, password TEXT, image_path TEXT, file_path TEXT)''')
+                 (username TEXT PRIMARY KEY, 
+                  password TEXT, 
+                  image_path TEXT, 
+                  file_path TEXT)''')
     # Insert some initial data
-    c.execute("INSERT OR IGNORE INTO users (username, password) VALUES ('user1', 'password1')")
-    c.execute("INSERT OR IGNORE INTO users (username, password) VALUES ('user2', 'password2')")
+    c.execute("INSERT OR IGNORE INTO users (username, password) VALUES (?, ?)", 
+              ('user1', generate_password_hash('password1')))
+    c.execute("INSERT OR IGNORE INTO users (username, password) VALUES (?, ?)", 
+              ('user2', generate_password_hash('password2')))
     conn.commit()
     conn.close()
 
 
-create_table()
-
-# Configure upload folder and allowed file extensions
-UPLOAD_FOLDER = 'uploads'
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-
-# Check if a file has an allowed extension
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+create_table()  # Initialize the database
 
 
 # Route for the home page
 @app.route('/')
 def home():
     return redirect(url_for('login'))
+
+
+# Function to verify login credentials
+def verify_login(username, password):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute('SELECT password FROM users WHERE username=?', (username,))
+    result = c.fetchone()
+    conn.close()
+    if result and check_password_hash(result[0], password):
+        return True
+    return False
 
 
 # Route for the login page
@@ -55,14 +67,26 @@ def login():
     return render_template('login.html', error=error)
 
 
-# Function to verify login credentials
-def verify_login(username, password):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('SELECT * FROM users WHERE username=? AND password=?', (username, password))
-    result = c.fetchone()
-    conn.close()
-    return result is not None
+# Route for the registration page
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    error = None
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+
+        hashed_password = generate_password_hash(password)
+        conn = sqlite3.connect('users.db')
+        c = conn.cursor()
+        try:
+            c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_password))
+            conn.commit()
+            conn.close()
+            return redirect(url_for('login'))
+        except sqlite3.IntegrityError:
+            error = 'Username already exists. Please try a different one.'
+
+    return render_template('register.html', error=error)
 
 
 # Route for the welcome page
@@ -71,40 +95,34 @@ def welcome(username):
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
     c.execute('SELECT image_path FROM users WHERE username=?', (username,))
-    results = c.fetchall()
+    result = c.fetchone()
     conn.close()
-    image_paths = [result[0] for result in results] if results else []
-    return render_template('welcome.html', username=username, image_paths=image_paths)
+    image_path = result[0] if result and result[0] else 'default_image.jpg'  # Replace with your default image path
+    return render_template('welcome.html', username=username, image_path=image_path)
 
 
-# Route for uploading files
-@app.route('/upload', methods=['POST'])
+# Route for file upload
+@app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
+    error = None
     if request.method == 'POST':
-        # Check if the post request has the file part
-        if 'file' not in request.files:
-            flash('No file part')
-            return redirect(request.url)
         file = request.files['file']
-        # If user does not select file, browser also
-        # submit an empty part without filename
-        if file.filename == '':
-            flash('No selected file')
-            return redirect(request.url)
-        if file and allowed_file(file.filename):
-            # Secure the filename before saving it
+        username = request.form['username']
+        if file and username:
             filename = secure_filename(file.filename)
-            # Save the file to the upload folder
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            # Update the database with the file path
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+
             conn = sqlite3.connect('users.db')
             c = conn.cursor()
-            c.execute('UPDATE users SET file_path=? WHERE username=?',
-                      (os.path.join(app.config['UPLOAD_FOLDER'], filename), request.form['username']))
+            c.execute('UPDATE users SET file_path=? WHERE username=?', (file_path, username))
             conn.commit()
             conn.close()
-            return redirect(url_for('welcome', username=request.form['username']))
-    return redirect(url_for('welcome', username=request.form['username']))
+            return redirect(url_for('welcome', username=username))
+        else:
+            error = 'Please provide both username and a file.'
+
+    return render_template('upload.html', error=error)
 
 
 if __name__ == '__main__':
