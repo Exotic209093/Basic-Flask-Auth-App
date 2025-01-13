@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profile Settings</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+            background: linear-gradient(45deg, #f3f4f6, #e5e7eb);
+            padding: 2rem;
+        }
+
+        .profile-container {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .smile {
+            width: 80px;
+            height: 40px;
+            border: 3px solid #3b82f6;
+            border-radius: 0 0 40px 40px;
+            border-top: 0;
+            margin: 0 auto 2rem;
+            position: relative;
+        }
+
+        .smile::before,
+        .smile::after {
+            content: '';
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: #3b82f6;
+            border-radius: 50%;
+            top: -20px;
+        }
+
+        .smile::before {
+            left: 15px;
+        }
+
+        .smile::after {
+            right: 15px;
+        }
+
+        .profile-header {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .profile-image-container {
+            position: relative;
+            width: 150px;
+            height: 150px;
+        }
+
+        .profile-image {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid #3b82f6;
+        }
+
+        .edit-image {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            background: #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .edit-image:hover {
+            background: #2563eb;
+        }
+
+        .edit-image svg {
+            width: 20px;
+            height: 20px;
+            color: white;
+        }
+
+        .profile-info {
+            flex-grow: 1;
+        }
+
+        h1 {
+            color: #1f2937;
+            margin-bottom: 0.5rem;
+            font-size: 2rem;
+        }
+
+        .join-date {
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .tab {
+            padding: 1rem;
+            color: #6b7280;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            color: #3b82f6;
+            border-bottom-color: #3b82f6;
+        }
+
+        .section {
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            color: #1f2937;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #4b5563;
+            font-size: 0.9rem;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e5e7eb;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+        .error-message {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .success-message {
+            background: #dcfce7;
+            color: #166534;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .setting-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem;
+            background: #f9fafb;
+            border-radius: 0.5rem;
+        }
+
+        .setting-info h4 {
+            color: #1f2937;
+            margin-bottom: 0.25rem;
+        }
+
+        .setting-info p {
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+
+        .toggle {
+            position: relative;
+            width: 50px;
+            height: 28px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #e5e7eb;
+            transition: .4s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: #3b82f6;
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(22px);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+        }
+
+        .primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .primary:hover {
+            background: #2563eb;
+        }
+
+        .secondary {
+            background: #6b7280;
+            color: white;
+        }
+
+        .secondary:hover {
+            background: #4b5563;
+        }
+
+        .danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .danger:hover {
+            background: #dc2626;
+        }
+    </style>
+</head>
+<body>
+    <div class="profile-container">
+        <div class="smile"></div>
+        <div class="profile-header">
+            <div class="profile-image-container">
+                <img src="{{ url_for('static', filename=image_path) }}" alt="Profile Picture" class="profile-image">
+                <label for="profile-image-upload" class="edit-image">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                </label>
+                <input type="file" id="profile-image-upload" hidden>
+            </div>
+            <div class="profile-info">
+                <h1>{{ username }}</h1>
+                <p class="join-date">Member since {{ join_date }}</p>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active">Profile Information</div>
+            <div class="tab">Security</div>
+            <div class="tab">Preferences</div>
+        </div>
+
+        {% if error %}
+        <div class="error-message">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        {% if success %}
+        <div class="success-message">
+            {{ success }}
+        </div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('update_profile') }}">
+            <div class="section">
+                <h3 class="section-title">Personal Information</h3>
+                <div class="input-group">
+                    <label for="display-name">Display Name</label>
+                    <input type="text" id="display-name" name="display_name" value="{{ display_name }}" required>
+                </div>
+                <div class="input-group">
+                    <label for="email">Email Address</label>
+                    <input type="email" id="email" name="email" value="{{ email }}" required>
+                </div>
+                <div class="input-group">
+                    <label for="bio">Bio</label>
+                    <input type="text" id="bio" name="bio" value="{{ bio }}" placeholder="Tell us about yourself">
+                </div>
+            </div>
+
+            <div class="section">
+                <h3 class="section-title">Preferences</h3>
+                <div class="settings-grid">
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h4>Email Notifications</h4>
+                            <p>Receive email updates about your account</p>
+                        </div>
+                        <label class="toggle">
+                            <input type="checkbox" name="email_notifications" {% if email_notifications %}checked{% endif %}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h4>Profile Visibility</h4>
+                            <p>Make your profile visible to other users</p>
+                        </div>
+                        <label class="toggle">
+                            <input type="checkbox" name="profile_visible" {% if profile_visible %}checked{% endif %}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button type="submit" class="button primary">Save Changes</button>
+                <a href="{{ url_for('welcome', username=username) }}" class="button secondary">Cancel</a>
+                <button type="button" class="button danger" onclick="confirmDeleteAccount()">Delete Account</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        function confirmDeleteAccount() {
+            if (confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
+                // Submit to delete account endpoint
+                window.location.href = "{{ url_for('delete_account', username=username) }}";
+            }
+        }
+    </script>
+</body>
+</html>
