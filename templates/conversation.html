@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>Conversation with {{ other_user.username }}</h2>
+  <div id="messages" class="border p-3 mb-3" style="max-height: 400px; overflow-y: scroll;">
+    {% for msg in messages %}
+      <div class="mb-2 d-flex align-items-start">
+        <!-- Show avatar: if message is from current_user, show their avatar; otherwise, show other_user's avatar -->
+        <img src="{% if msg.sender_id == current_user.id %}{{ current_user.avatar if current_user.avatar else url_for('static', filename='placeholder.png') }}{% else %}{{ other_user.avatar if other_user.avatar else url_for('static', filename='placeholder.png') }}{% endif %}"
+             alt="Avatar"
+             style="width:30px; height:30px; object-fit: cover; border-radius:50%; margin-right:10px;">
+        <div>
+          <div>
+            <strong>
+              {% if msg.sender_id == current_user.id %}
+                You:
+              {% else %}
+                {{ other_user.username }}:
+              {% endif %}
+            </strong>
+          </div>
+          <div>{{ msg.content }}</div>
+          <small class="text-muted">{{ msg.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+        </div>
+      </div>
+    {% else %}
+      <p>No messages yet. Start the conversation!</p>
+    {% endfor %}
+  </div>
+  
+  <form id="messageForm">
+    <div class="form-group">
+      <textarea id="messageInput" class="form-control" placeholder="Type your message here..." required></textarea>
+    </div>
+    <button type="submit" class="btn btn-success">Send Message</button>
+  </form>
+  
+  <!-- Include SocketIO client script -->
+  <script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+  <script type="text/javascript">
+    const socket = io();
+
+    // The room name generated on the server
+    const room = "{{ room }}";
+    const otherUserId = "{{ other_user.id }}";
+    const currentUserId = {{ current_user.id }};
+
+    // When connected, join the conversation room
+    socket.on('connect', function() {
+        socket.emit('join', {'room': room});
+    });
+
+    // Listen for incoming messages
+    socket.on('receive_message', function(data) {
+        const messagesDiv = document.getElementById('messages');
+        const messageContainer = document.createElement('div');
+        messageContainer.classList.add('mb-2', 'd-flex', 'align-items-start');
+
+        // Create an image element for the avatar
+        const avatarImg = document.createElement('img');
+        avatarImg.style.width = "30px";
+        avatarImg.style.height = "30px";
+        avatarImg.style.objectFit = "cover";
+        avatarImg.style.borderRadius = "50%";
+        avatarImg.style.marginRight = "10px";
+
+        // Determine which avatar to show based on sender_id
+        if (data.sender_id === currentUserId) {
+            avatarImg.src = "{{ current_user.avatar if current_user.avatar else url_for('static', filename='placeholder.png') }}";
+        } else {
+            avatarImg.src = "{{ other_user.avatar if other_user.avatar else url_for('static', filename='placeholder.png') }}";
+        }
+
+        // Create a container for the message content
+        const messageContent = document.createElement('div');
+        const senderName = document.createElement('strong');
+        senderName.textContent = (data.sender_id === currentUserId ? "You:" : "{{ other_user.username }}:");
+        const contentText = document.createElement('div');
+        contentText.textContent = data.message;
+        const timestamp = document.createElement('small');
+        timestamp.classList.add('text-muted');
+        timestamp.textContent = data.timestamp;
+
+        messageContent.appendChild(senderName);
+        messageContent.appendChild(contentText);
+        messageContent.appendChild(timestamp);
+
+        messageContainer.appendChild(avatarImg);
+        messageContainer.appendChild(messageContent);
+
+        messagesDiv.appendChild(messageContainer);
+        // Scroll to bottom
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    });
+
+    // Handle form submission to send a new message
+    document.getElementById('messageForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        let messageInput = document.getElementById('messageInput');
+        let message = messageInput.value.trim();
+        if (message.length > 0) {
+            socket.emit('send_message', {
+                'room': room,
+                'message': message,
+                'other_user_id': otherUserId
+            });
+            messageInput.value = '';
+        }
+    });
+  </script>
+{% endblock %}

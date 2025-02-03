@@ -1,236 +1,207 @@
-from flask import Flask, request, render_template, redirect, url_for, jsonify
-import sqlite3
-import os
-from werkzeug.utils import secure_filename
+from flask import Flask, render_template, redirect, url_for, request, flash, session, jsonify, current_app
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-import time
-# Initialize the Flask app
+from werkzeug.utils import secure_filename
+from flask_socketio import SocketIO, join_room, leave_room, emit
+from datetime import datetime
+import eventlet
+import os
+eventlet.monkey_patch()
+
+# Initialize the app and configuration
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your_secret_key_here'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
 
-# File upload configuration
-UPLOAD_FOLDER = 'uploads/'
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-# Function to create the initial database
-# First, let's modify the create_table function to add the new columns safely
-def create_table():
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
+# Create the uploads folder if it doesn't exist
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
     
-    # First, check if we need to add new columns to the existing table
-    c.execute("PRAGMA table_info(users)")
-    columns = [column[1] for column in c.fetchall()]
-    
-    # If the table doesn't exist, create it with all columns
-    if not columns:
-        c.execute('''CREATE TABLE users
-                     (username TEXT PRIMARY KEY,
-                      password TEXT,
-                      image_path TEXT,
-                      display_name TEXT,
-                      email TEXT,
-                      bio TEXT,
-                      email_notifications BOOLEAN DEFAULT FALSE,
-                      profile_visible BOOLEAN DEFAULT FALSE)''')
-    else:
-        # Add any missing columns
-        if 'display_name' not in columns:
-            c.execute('ALTER TABLE users ADD COLUMN display_name TEXT')
-        if 'email' not in columns:
-            c.execute('ALTER TABLE users ADD COLUMN email TEXT')
-        if 'bio' not in columns:
-            c.execute('ALTER TABLE users ADD COLUMN bio TEXT')
-        if 'email_notifications' not in columns:
-            c.execute('ALTER TABLE users ADD COLUMN email_notifications BOOLEAN DEFAULT FALSE')
-        if 'profile_visible' not in columns:
-            c.execute('ALTER TABLE users ADD COLUMN profile_visible BOOLEAN DEFAULT FALSE')
-    
-    conn.commit()
-    conn.close()
+db = SQLAlchemy(app)
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
 
-# Now let's modify the profile route to handle null values safely
-@app.route('/profile/<username>', methods=['GET'])
-def profile(username):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    
-    # First, make sure we have all the necessary columns
-    create_table()
-    
-    # Get user data
-    c.execute('''SELECT username, image_path, display_name, email, bio, 
-                 email_notifications, profile_visible 
-                 FROM users WHERE username=?''', (username,))
-    user = c.fetchone()
-    conn.close()
-    
-    if user:
-        return render_template('profile.html',
-                             username=user[0],
-                             image_path=user[1] if user[1] else 'default_avatar.jpg',
-                             display_name=user[2] if user[2] else user[0],  # Use username if no display name
-                             email=user[3] if user[3] else '',
-                             bio=user[4] if user[4] else '',
-                             email_notifications=bool(user[5]),
-                             profile_visible=bool(user[6]))
-    return redirect(url_for('login'))
+# Initialize SocketIO
+socketio = SocketIO(app, manage_session=False)
 
-# Add the update profile route
-@app.route('/update_profile', methods=['POST'])
-def update_profile():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        display_name = request.form.get('display_name')
-        email = request.form.get('email')
-        bio = request.form.get('bio')
-        email_notifications = True if request.form.get('email_notifications') else False
-        profile_visible = True if request.form.get('profile_visible') else False
-
-        conn = sqlite3.connect('users.db')
-        c = conn.cursor()
-        c.execute('''UPDATE users 
-                    SET display_name=?, email=?, bio=?, 
-                        email_notifications=?, profile_visible=?
-                    WHERE username=?''',
-                 (display_name, email, bio, 
-                  email_notifications, profile_visible, username))
-        conn.commit()
-        conn.close()
-        
-        return redirect(url_for('profile', username=username))
+#File Verification service
+def allowed_file(filename):
+    allowed_extensions = current_app.config.get('ALLOWED_EXTENSIONS', set())
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
 
 
-create_table()  # Initialize the database
+# Models
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(150), unique=True, nullable=False)
+    password = db.Column(db.String(150), nullable=False)
+    bio = db.Column(db.Text, default="")  # New field for a user's bio
+    avatar = db.Column(db.String(300), default="")  # New field for an avatar URL
+
+    def __repr__(self):
+        return f'<User {self.username}>'
 
 
-# Route for the home page
+class Message(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    receiver_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<Message from {self.sender_id} to {self.receiver_id}>'
+
+# User loader for Flask-Login
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# Utility function to generate a unique room name for two users
+def get_room_name(user1_id, user2_id):
+    # Ensure that the room name is the same regardless of order
+    sorted_ids = sorted([user1_id, user2_id])
+    return f"conversation_{sorted_ids[0]}_{sorted_ids[1]}"
+
+# Routes
+
 @app.route('/')
-def home():
-    return redirect(url_for('login'))
+def index():
+    if current_user.is_authenticated:
+        # List all users except the current user
+        users = User.query.filter(User.id != current_user.id).all()
+        return render_template('index.html', users=users)
+    return render_template('index.html')
 
-
-# Function to verify login credentials
-def verify_login(username, password):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('SELECT password FROM users WHERE username=?', (username,))
-    result = c.fetchone()
-    conn.close()
-    if result and check_password_hash(result[0], password):
-        return True
-    return False
-
-
-# Route for the login page
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    error = None
+@app.route('/profile', methods=['GET', 'POST'])
+@login_required
+def profile():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        # Update the bio field
+        bio = request.form.get('bio', '').strip()
+        current_user.bio = bio
 
-        if verify_login(username, password):
-            return redirect(url_for('welcome', username=username))
-        else:
-            error = 'Invalid username or password. Please try again.'
-
-    return render_template('login.html', error=error)
-
-
-# Route for the registration page
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    error = None
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-
-        hashed_password = generate_password_hash(password)
-        conn = sqlite3.connect('users.db')
-        c = conn.cursor()
-        try:
-            c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_password))
-            conn.commit()
-            conn.close()
-            return redirect(url_for('login'))
-        except sqlite3.IntegrityError:
-            error = 'Username already exists. Please try a different one.'
-
-    return render_template('register.html', error=error)
-
-
-# Route for the welcome page
-@app.route('/welcome/<username>')
-def welcome(username):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('SELECT image_path FROM users WHERE username=?', (username,))
-    result = c.fetchone()
-    conn.close()
-    image_path = result[0] if result and result[0] else 'default_image.jpg'  # Replace with your default image path
-    return render_template('welcome.html', username=username, image_path=image_path)
-
-
-# Route for file upload
-@app.route('/upload', methods=['GET', 'POST'])
-def upload_file():
-    error = None
-    if request.method == 'POST':
-        file = request.files['file']
-        username = request.form['username']
-        if file and username:
+        # Check if a file was uploaded for the avatar
+        file = request.files.get('avatar_file')
+        if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
             file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(file_path)
+            # Save the relative path to the avatar field (so it can be served from static/)
+            current_user.avatar = filename  # Just save the filename
+            db.session.commit()
+        elif file and file.filename != '':
+            # File was submitted but the extension is not allowed.
+            flash("File type not allowed. Please upload an image file.", "danger")
+            return redirect(url_for('profile'))
 
-            conn = sqlite3.connect('users.db')
-            c = conn.cursor()
-            c.execute('UPDATE users SET file_path=? WHERE username=?', (file_path, username))
-            conn.commit()
-            conn.close()
-            return redirect(url_for('welcome', username=username))
+        db.session.commit()
+        flash("Profile updated successfully!", "success")
+        return redirect(url_for('profile'))
+    
+    return render_template('profile.html')
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username').strip()
+        password = request.form.get('password').strip()
+
+        if not username or not password:
+            flash("Please enter both username and password.", "danger")
+            return redirect(url_for('register'))
+
+        if User.query.filter_by(username=username).first():
+            flash("Username already exists. Please choose a different one.", "danger")
+            return redirect(url_for('register'))
+
+        hashed_pw = generate_password_hash(password)  # default is pbkdf2:sha256
+        new_user = User(username=username, password=hashed_pw)
+        db.session.add(new_user)
+        db.session.commit()
+        flash("Account created successfully. Please login.", "success")
+        return redirect(url_for('login'))
+    return render_template('register.html')
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username').strip()
+        password = request.form.get('password').strip()
+
+        user = User.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password, password):
+            login_user(user)
+            flash("Logged in successfully!", "success")
+            return redirect(url_for('index'))
         else:
-            error = 'Please provide both username and a file.'
-
-    return render_template('upload.html', error=error)
-
-
+            flash("Invalid username or password.", "danger")
+            return redirect(url_for('login'))
+    return render_template('login.html')
 
 
-
-
-@app.route('/upload_profile_image', methods=['POST'])
-def upload_profile_image():
-    if 'profile_image' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-    
-    file = request.files['profile_image']
-    username = request.form.get('username')
-    
-    if file and username:
-        filename = secure_filename(f"{username}_profile_{int(time.time())}.jpg")
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-        
-        conn = sqlite3.connect('users.db')
-        c = conn.cursor()
-        c.execute('UPDATE users SET image_path=? WHERE username=?', (filename, username))
-        conn.commit()
-        conn.close()
-        
-        return jsonify({'success': True, 'image_path': filename})
-    return jsonify({'error': 'Invalid request'}), 400
-
-@app.route('/delete_account/<username>')
-def delete_account(username):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('DELETE FROM users WHERE username=?', (username,))
-    conn.commit()
-    conn.close()
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash("You have been logged out.", "info")
     return redirect(url_for('login'))
 
 
+@app.route('/conversation/<int:other_user_id>')
+@login_required
+def conversation(other_user_id):
+    other_user = User.query.get_or_404(other_user_id)
+    room = get_room_name(current_user.id, other_user.id)
+
+    # Query messages between current_user and the other user
+    messages = Message.query.filter(
+        ((Message.sender_id == current_user.id) & (Message.receiver_id == other_user.id)) |
+        ((Message.sender_id == other_user.id) & (Message.receiver_id == current_user.id))
+    ).order_by(Message.timestamp).all()
+    
+    return render_template('conversation.html', messages=messages, other_user=other_user, room=room)
+
+
+# SocketIO events
+
+@socketio.on('join')
+def on_join(data):
+    room = data['room']
+    join_room(room)
+    # Optionally, notify others that a user has joined
+    # emit('status', {'msg': f'{current_user.username} has entered the room.'}, room=room)
+
+@socketio.on('send_message')
+def handle_send_message_event(data):
+    room = data['room']
+    content = data['message']
+    other_user_id = data['other_user_id']
+    
+    # Save message to database
+    new_message = Message(sender_id=current_user.id,
+                          receiver_id=other_user_id,
+                          content=content)
+    db.session.add(new_message)
+    db.session.commit()
+
+    timestamp = new_message.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+    message_data = {
+        'sender_id': current_user.id,
+        'sender': current_user.username,
+        'message': content,
+        'timestamp': timestamp,
+    }
+    emit('receive_message', message_data, room=room)
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    with app.app_context():
+        db.create_all()
+    # Use socketio.run instead of app.run
+    socketio.run(app, debug=True)

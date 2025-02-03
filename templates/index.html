@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>Welcome to Flask Messenger</h1>
+  {% if current_user.is_authenticated %}
+    <h3>Select a user to start a conversation:</h3>
+    <ul class="list-group">
+      {% for user in users %}
+        <li class="list-group-item d-flex align-items-center">
+          <!-- Display the user's avatar -->
+          <img src="{{ url_for('static', filename='uploads/' + user.avatar) }}" alt="Avatar"
+              style="width:40px; height:40px; object-fit:cover; border-radius:50%;">
+
+          <a href="{{ url_for('conversation', other_user_id=user.id) }}">{{ user.username }}</a>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>Please <a href="{{ url_for('login') }}">login</a> or <a href="{{ url_for('register') }}">register</a>.</p>
+  {% endif %}
+{% endblock %}
